@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Équipes | Orient'Show</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body { background-color: #0f172a; color: white; font-family: sans-serif; }
+        .tab-btn { flex: 1; padding: 15px; font-weight: 900; text-transform: uppercase; background: #1e293b; border-bottom: 4px solid transparent; transition: 0.3s; text-align: center; }
+        .tab-active { background: #3b82f6; border-color: white; }
+    </style>
+</head>
+<body class="p-4 max-w-6xl mx-auto">
+    
+    <header class="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+        <h1 class="text-3xl text-blue-500 font-black italic tracking-tighter">Master Équipes</h1>
+        <div class="flex gap-3">
+            <button onclick="document.getElementById('csv').click()" class="bg-blue-600 px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-blue-500">📂 Import CSV (iDoceo)</button>
+            <input type="file" id="csv" class="hidden" accept=".csv" onchange="importCSV(this)">
+            <button onclick="purgerBase()" class="bg-red-900/50 text-red-500 px-3 py-2 rounded-lg text-xs font-bold border border-red-900 hover:bg-red-600 hover:text-white">🗑️ Purger</button>
+        </div>
+    </header>
+
+    <nav class="flex gap-2 mb-6 rounded-xl overflow-hidden shadow-lg">
+        <button onclick="switchTab('bilan')" id="btnTabBilan" class="tab-btn tab-active">📊 Classement</button>
+        <button onclick="switchTab('groupes')" id="btnTabGroupes" class="tab-btn">👥 Affectations</button>
+        <button onclick="switchTab('codes')" id="btnTabCodes" class="tab-btn">📝 Matrice Codes</button>
+    </nav>
+
+    <!-- VUE CLASSEMENT -->
+    <div id="viewBilan" class="space-y-4">
+        <div class="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700">
+            <select id="catFilter" onchange="renderBilan()" class="bg-slate-900 border border-slate-600 text-white font-bold p-2 rounded outline-none w-64 uppercase">
+                <option value="ALL">TOUTES LES CATÉGORIES</option>
+            </select>
+            <div class="text-sm font-bold text-slate-400">Capital départ : 40 pts | Max : 400 pts</div>
+        </div>
+        <div id="leaderboardList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
+
+    <!-- VUE AFFECTATIONS -->
+    <div id="viewGroupes" class="hidden space-y-4">
+        <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 text-sm text-slate-400 mb-4">
+            Voici les chasubles (Dossards) affectées automatiquement aux équipes lors de l'import. C'est ce code qui dicte leur parcours dans la matrice.
+        </div>
+        <div id="groupesList" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+    </div>
+
+    <!-- VUE MATRICE -->
+    <div id="viewCodes" class="hidden overflow-x-auto bg-slate-800 p-4 border border-slate-700 rounded-xl">
+        <table class="w-full text-center font-bold" id="matrixTable"></table>
+    </div>
+
+    <!-- MODAL CORRECTION -->
+    <div id="modalDetails" class="hidden fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-slate-800 w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 id="mName" class="text-2xl text-blue-400 font-black uppercase"></h2>
+                    <div id="mScore" class="text-emerald-400 font-bold"></div>
+                </div>
+                <button onclick="document.getElementById('modalDetails').classList.add('hidden')" class="text-3xl text-slate-500 hover:text-white">&times;</button>
+            </div>
+            <div id="mHistory" class="space-y-2 max-h-[60vh] overflow-y-auto pr-2"></div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = { databaseURL: "https://orientshow-3a86f-default-rtdb.europe-west1.firebasedatabase.app/" };
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const colors = ["NOIR", "ROUGE", "BLEU", "VERT", "JAUNE"];
+        
+        let mapping = {}, sessions = {};
+        
+        // Initialisation Matrice de Secours (Si vide)
+        const initCodes = { 1:{NOIR:["D","Q"],ROUGE:["O","U"],BLEU:["Y","A"],VERT:["E","R"],JAUNE:["N","K"]}, 2:{NOIR:["E","X"],ROUGE:["X","Y"],BLEU:["T","L"],VERT:["R","O"],JAUNE:["A","L"]}, 3:{NOIR:["C","L"],ROUGE:["H","U"],BLEU:["I","B"],VERT:["O","I"],JAUNE:["T","E"]}, 4:{NOIR:["R","V"],ROUGE:["E","E"],BLEU:["C","R"],VERT:["T","N"],JAUNE:["O","I"]}, 5:{NOIR:["A","B"],ROUGE:["J","O"],BLEU:["O","U"],VERT:["N","E"],JAUNE:["C","S"]}, 6:{NOIR:["F","M"],ROUGE:["I","E"],BLEU:["C","R"],VERT:["U","O"],JAUNE:["S","U"]}, 7:{NOIR:["G","H"],ROUGE:["U","A"],BLEU:["E","C"],VERT:["U","H"],JAUNE:["X","E"]}, 8:{NOIR:["I","J"],ROUGE:["V","E"],BLEU:["R","A"],VERT:["E","N"],JAUNE:["S","S"]}, 9:{NOIR:["K","N"],ROUGE:["R","Y"],BLEU:["A","L"],VERT:["F","O"],JAUNE:["T","N"]}, 10:{NOIR:["O","S"],ROUGE:["C","E"],BLEU:["E","I"],VERT:["A","Z"],JAUNE:["N","E"]}, 11:{NOIR:["P","T"],ROUGE:["A","U"],BLEU:["L","Y"],VERT:["U","A"],JAUNE:["D","U"]}, 12:{NOIR:["U","W"],ROUGE:["L","I"],BLEU:["T","N"],VERT:["R","C"],JAUNE:["A","H"]} };
+        db.ref('equipes/settings/matrix').once('value', snap => { if(!snap.exists()) db.ref('equipes/settings/matrix').set(initCodes); });
+
+        // Chargement des données
+        db.ref('equipes/mapping').on('value', snap => {
+            mapping = snap.val() || {};
+            const sel = document.getElementById('catFilter');
+            const curVal = sel.value;
+            sel.innerHTML = '<option value="ALL">TOUTES LES CATÉGORIES</option>' + Object.keys(mapping).map(c => `<option value="${c}">${c}</option>`).join('');
+            sel.value = curVal || "ALL";
+            renderBilan(); renderGroupes();
+        });
+
+        db.ref('equipes/sessions').on('value', snap => {
+            sessions = snap.val() || {};
+            renderBilan();
+        });
+
+        // Affichage du Leaderboard
+        function renderBilan() {
+            const filter = document.getElementById('catFilter').value;
+            let list = [];
+            
+            Object.keys(mapping).forEach(cat => {
+                if(filter !== "ALL" && filter !== cat) return;
+                Object.values(mapping[cat]).forEach(team => {
+                    const data = (sessions[cat] && sessions[cat][team.id]) || {};
+                    const score = 40 + Object.keys(data).reduce((acc, k) => acc + (k.startsWith('C') ? data[k].score : 0), 0);
+                    let lastTime = 0; Object.keys(data).forEach(k => { if(data[k].realTime > lastTime) lastTime = data[k].realTime; });
+                    list.push({ ...team, cat, score, lastTime });
+                });
+            });
+
+            list.sort((a,b) => b.score - a.score || a.lastTime - b.lastTime);
+            
+            document.getElementById('leaderboardList').innerHTML = list.map((t, i) => `
+                <div onclick="openModal('${t.cat}', '${t.id}', '${t.name.replace(/'/g,"\\'")}', ${t.score})" class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center cursor-pointer hover:bg-slate-700 transition">
+                    <div class="flex items-center gap-3">
+                        <div class="text-2xl font-black text-slate-500 w-8">${i+1}.</div>
+                        <div>
+                            <div class="font-black text-white text-lg">${t.name}</div>
+                            <div class="text-[10px] uppercase text-slate-400">${t.cat} - ${t.code}</div>
+                        </div>
+                    </div>
+                    <div class="text-3xl font-black text-blue-400">${t.score}</div>
+                </div>
+            `).join('');
+        }
+
+        // Affichage des Affectations
+        function renderGroupes() {
+            let html = "";
+            Object.keys(mapping).forEach(cat => {
+                html += `<div class="col-span-full font-black text-blue-500 mt-4 border-b border-slate-700 pb-2">${cat}</div>`;
+                Object.values(mapping[cat]).forEach(t => {
+                    const colName = t.code.split('_')[0];
+                    const colStyles = { NOIR:"bg-black border-slate-600", ROUGE:"bg-red-600 border-red-900", BLEU:"bg-blue-600 border-blue-900", VERT:"bg-green-600 border-green-900", JAUNE:"bg-yellow-500 text-black border-yellow-700" };
+                    html += `<div class="bg-slate-800 p-3 rounded-lg border border-slate-700 flex flex-col items-center justify-center text-center">
+                                <div class="w-12 h-12 rounded-full border-4 flex items-center justify-center font-black text-xl mb-2 ${colStyles[colName]}">${t.code.split('_')[1]}</div>
+                                <div class="font-bold text-sm truncate w-full">${t.name}</div>
+                             </div>`;
+                });
+            });
+            document.getElementById('groupesList').innerHTML = html;
+        }
+
+        // Modal de Correction
+        function openModal(cat, teamId, teamName, totalScore) {
+            document.getElementById('mName').innerText = teamName;
+            document.getElementById('mScore').innerText = `TOTAL : ${totalScore} PTS`;
+            document.getElementById('modalDetails').classList.remove('hidden');
+            
+            const data = (sessions[cat] && sessions[cat][teamId]) || {};
+            const history = Object.keys(data).filter(k => k.startsWith('C')).map(k => ({ p: k, ...data[k] })).sort((a,b) => b.realTime - a.realTime);
+            
+            document.getElementById('mHistory').innerHTML = history.length ? history.map(h => `
+                <div class="bg-slate-900 p-3 rounded-lg flex justify-between items-center border border-slate-700">
+                    <div>
+                        <span class="font-black text-lg text-white">${h.p}</span>
+                        <span class="ml-3 text-sm font-bold ${h.score===30?'text-emerald-400':(h.score===10?'text-orange-400':'text-red-500')}">+${h.score} pts</span>
+                        <div class="text-[10px] text-slate-500">${new Date(h.realTime).toLocaleTimeString()}</div>
+                    </div>
+                    <button onclick="annulerScore('${cat}', '${teamId}', '${h.p}')" class="bg-red-600/20 text-red-500 p-2 rounded hover:bg-red-600 hover:text-white transition" title="Supprimer ce score">🗑️ Annuler</button>
+                </div>
+            `).join('') : "<p class='text-center italic text-slate-500 p-4'>Aucun circuit validé</p>";
+        }
+
+        function annulerScore(cat, teamId, circuit) {
+            if(confirm(`Es-tu sûr de vouloir annuler le score du ${circuit} pour cette équipe ? (Cette action réactivera le circuit sur leur tablette)`)) {
+                db.ref(`equipes/sessions/${cat}/${teamId}/${circuit}`).remove();
+                document.getElementById('modalDetails').classList.add('hidden');
+            }
+        }
+
+        // Import CSV
+        function importCSV(input) {
+            Papa.parse(input.files[0], { header: true, skipEmptyLines: true, complete: res => {
+                const fields = res.meta.fields;
+                const colCat = fields.find(f => f.toLowerCase() === '@name' || f.toLowerCase().includes('cat'));
+                const colTeam = fields.find(f => f.toLowerCase() === '@lastname' || f.toLowerCase().includes('equipe') || f.toLowerCase().includes('nom'));
+                
+                if(!colCat || !colTeam) return alert("Colonnes @name (Catégorie) ou @lastname (Équipe) introuvables.");
+                
+                let newMap = {};
+                res.data.forEach((r, i) => {
+                    const cat = r[colCat].toUpperCase();
+                    if(!newMap[cat]) newMap[cat] = {};
+                    const tId = 'EQ_' + Date.now() + '_' + i;
+                    // Affectation semi-aléatoire des chasubles
+                    newMap[cat][tId] = { id: tId, name: r[colTeam], code: `${colors[i % 5]}_${Math.floor(i / 5) + 1}` };
+                });
+                
+                if(confirm("L'import va écraser la liste des équipes actuelles. Continuer ?")) {
+                    db.ref('equipes/mapping').set(newMap).then(() => { alert("Import réussi !"); input.value=""; });
+                }
+            }});
+        }
+
+        function purgerBase() {
+            if(prompt("Mot de passe pour purger TOUTES LES DONNÉES ÉQUIPES :") === "0680013V") {
+                db.ref('equipes').remove().then(() => alert("Base purgée."));
+            }
+        }
+
+        function switchTab(t) { 
+            ['viewBilan','viewGroupes','viewCodes'].forEach(v => document.getElementById(v).classList.add('hidden')); 
+            document.getElementById('view'+t.charAt(0).toUpperCase()+t.slice(1)).classList.remove('hidden'); 
+            document.querySelectorAll('nav button').forEach(b => b.classList.remove('tab-active')); 
+            document.getElementById('btnTab'+t.charAt(0).toUpperCase()+t.slice(1)).classList.add('tab-active'); 
+        }
+
+        // Affichage Matrice (Copie de l'ancien fonctionnement, pointant sur 'equipes/settings/matrix')
+        db.ref('equipes/settings/matrix').on('value', snap => {
+            let m = snap.val() || {}; if(Object.keys(m).length === 0) return;
+            let h = `<tr class="bg-slate-900 text-[10px] text-white"><th>#</th><th colspan="2" class="bg-black py-2 rounded-tl-lg">NOIR</th><th colspan="2" class="bg-red-600 py-2">ROUGE</th><th colspan="2" class="bg-blue-600 py-2">BLEU</th><th colspan="2" class="bg-green-600 py-2">VERT</th><th colspan="2" class="bg-yellow-500 text-black py-2 rounded-tr-lg">JAUNE</th></tr>`;
+            for(let c=1; c<=12; c++) { 
+                h += `<tr class="border-b border-slate-700"><td class="font-black text-lg text-slate-500 py-2">C${c}</td>`; 
+                colors.forEach(col => { 
+                    const l = m[c]?.[col] || ["",""]; 
+                    h += `<td><input class="w-10 h-10 bg-slate-900 text-center font-black text-xl text-blue-400 m-1 uppercase rounded" value="${l[0]}" maxlength="1" onchange="db.ref('equipes/settings/matrix/${c}/${col}/0').set(this.value.toUpperCase())"></td>
+                          <td class="border-r border-slate-700/50"><input class="w-10 h-10 bg-slate-900 text-center font-black text-xl text-blue-400 m-1 uppercase rounded" value="${l[1]}" maxlength="1" onchange="db.ref('equipes/settings/matrix/${c}/${col}/1').set(this.value.toUpperCase())"></td>`; 
+                }); 
+                h += `</tr>`; 
+            }
+            document.getElementById('matrixTable').innerHTML = h;
+        });
+    </script>
+</body>
+</html>
