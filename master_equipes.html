@@ -18,7 +18,7 @@
     <header class="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
         <h1 class="text-3xl text-blue-500 font-black italic tracking-tighter">Master Équipes</h1>
         <div class="flex gap-3">
-            <button onclick="document.getElementById('csv').click()" class="bg-blue-600 px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-blue-500">📂 Import CSV (iDoceo)</button>
+            <button onclick="document.getElementById('csv').click()" class="bg-blue-600 px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-blue-500">📂 Import CSV</button>
             <input type="file" id="csv" class="hidden" accept=".csv" onchange="importCSV(this)">
             <button onclick="purgerBase()" class="bg-red-900/50 text-red-500 px-3 py-2 rounded-lg text-xs font-bold border border-red-900 hover:bg-red-600 hover:text-white">🗑️ Purger</button>
         </div>
@@ -36,16 +36,35 @@
             <select id="catFilter" onchange="renderBilan()" class="bg-slate-900 border border-slate-600 text-white font-bold p-2 rounded outline-none w-64 uppercase">
                 <option value="ALL">TOUTES LES CATÉGORIES</option>
             </select>
-            <div class="text-sm font-bold text-slate-400">Capital départ : 40 pts | Max : 400 pts</div>
+            <div class="text-sm font-bold text-slate-400">Capital : 40 pts | Max : 400 pts</div>
         </div>
         <div id="leaderboardList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
     </div>
 
     <!-- VUE AFFECTATIONS -->
     <div id="viewGroupes" class="hidden space-y-4">
-        <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 text-sm text-slate-400 mb-4">
-            Voici les chasubles (Dossards) affectées automatiquement aux équipes lors de l'import. C'est ce code qui dicte leur parcours dans la matrice.
+        <!-- Barre d'ajout manuel -->
+        <div class="bg-slate-800 p-4 rounded-xl border border-blue-900 shadow-lg mb-6 flex flex-wrap gap-2 items-end">
+            <div class="flex-1 min-w-[150px]">
+                <label class="text-[10px] text-blue-400 uppercase font-bold">Catégorie</label>
+                <input type="text" id="newCat" class="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white font-bold uppercase" placeholder="Ex: MINIMES" list="catList">
+                <datalist id="catList"></datalist>
+            </div>
+            <div class="flex-1 min-w-[150px]">
+                <label class="text-[10px] text-blue-400 uppercase font-bold">Nom Équipe</label>
+                <input type="text" id="newNom" class="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white font-bold" placeholder="Ex: Buhl 1">
+            </div>
+            <div class="w-32">
+                <label class="text-[10px] text-blue-400 uppercase font-bold">Couleur</label>
+                <select id="newCol" class="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white font-bold">
+                    <option value="NOIR">NOIR</option><option value="ROUGE">ROUGE</option>
+                    <option value="BLEU">BLEU</option><option value="VERT">VERT</option>
+                    <option value="JAUNE">JAUNE</option>
+                </select>
+            </div>
+            <button onclick="ajouterEquipe()" class="bg-blue-600 px-4 py-2 rounded font-black hover:bg-blue-500 transition h-[42px]">➕ AJOUTER</button>
         </div>
+
         <div id="groupesList" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
     </div>
 
@@ -54,17 +73,17 @@
         <table class="w-full text-center font-bold" id="matrixTable"></table>
     </div>
 
-    <!-- MODAL CORRECTION -->
+    <!-- MODAL DE CORRECTION (FORCAGE / ANNULATION) -->
     <div id="modalDetails" class="hidden fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
         <div class="bg-slate-800 w-full max-w-lg rounded-2xl p-6 border border-slate-700 shadow-2xl">
-            <div class="flex justify-between items-center mb-6">
+            <div class="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
                 <div>
                     <h2 id="mName" class="text-2xl text-blue-400 font-black uppercase"></h2>
                     <div id="mScore" class="text-emerald-400 font-bold"></div>
                 </div>
-                <button onclick="document.getElementById('modalDetails').classList.add('hidden')" class="text-3xl text-slate-500 hover:text-white">&times;</button>
+                <button onclick="closeModal()" class="text-4xl text-slate-500 hover:text-white">&times;</button>
             </div>
-            <div id="mHistory" class="space-y-2 max-h-[60vh] overflow-y-auto pr-2"></div>
+            <div id="mHistory" class="max-h-[60vh] overflow-y-auto pr-2"></div>
         </div>
     </div>
 
@@ -75,12 +94,13 @@
         const colors = ["NOIR", "ROUGE", "BLEU", "VERT", "JAUNE"];
         
         let mapping = {}, sessions = {};
+        let curModalCat = null, curModalId = null; // Stocke la cible du modal ouvert
         
-        // Initialisation Matrice de Secours (Si vide)
+        // Matrice par défaut si vierge
         const initCodes = { 1:{NOIR:["D","Q"],ROUGE:["O","U"],BLEU:["Y","A"],VERT:["E","R"],JAUNE:["N","K"]}, 2:{NOIR:["E","X"],ROUGE:["X","Y"],BLEU:["T","L"],VERT:["R","O"],JAUNE:["A","L"]}, 3:{NOIR:["C","L"],ROUGE:["H","U"],BLEU:["I","B"],VERT:["O","I"],JAUNE:["T","E"]}, 4:{NOIR:["R","V"],ROUGE:["E","E"],BLEU:["C","R"],VERT:["T","N"],JAUNE:["O","I"]}, 5:{NOIR:["A","B"],ROUGE:["J","O"],BLEU:["O","U"],VERT:["N","E"],JAUNE:["C","S"]}, 6:{NOIR:["F","M"],ROUGE:["I","E"],BLEU:["C","R"],VERT:["U","O"],JAUNE:["S","U"]}, 7:{NOIR:["G","H"],ROUGE:["U","A"],BLEU:["E","C"],VERT:["U","H"],JAUNE:["X","E"]}, 8:{NOIR:["I","J"],ROUGE:["V","E"],BLEU:["R","A"],VERT:["E","N"],JAUNE:["S","S"]}, 9:{NOIR:["K","N"],ROUGE:["R","Y"],BLEU:["A","L"],VERT:["F","O"],JAUNE:["T","N"]}, 10:{NOIR:["O","S"],ROUGE:["C","E"],BLEU:["E","I"],VERT:["A","Z"],JAUNE:["N","E"]}, 11:{NOIR:["P","T"],ROUGE:["A","U"],BLEU:["L","Y"],VERT:["U","A"],JAUNE:["D","U"]}, 12:{NOIR:["U","W"],ROUGE:["L","I"],BLEU:["T","N"],VERT:["R","C"],JAUNE:["A","H"]} };
         db.ref('equipes/settings/matrix').once('value', snap => { if(!snap.exists()) db.ref('equipes/settings/matrix').set(initCodes); });
 
-        // Chargement des données
+        // Chargement des données temps réel
         db.ref('equipes/mapping').on('value', snap => {
             mapping = snap.val() || {};
             const sel = document.getElementById('catFilter');
@@ -93,9 +113,12 @@
         db.ref('equipes/sessions').on('value', snap => {
             sessions = snap.val() || {};
             renderBilan();
+            refreshModal(); // Mets à jour le modal si ouvert
         });
 
-        // Affichage du Leaderboard
+        // ==========================
+        // VUE CLASSEMENT
+        // ==========================
         function renderBilan() {
             const filter = document.getElementById('catFilter').value;
             let list = [];
@@ -113,12 +136,12 @@
             list.sort((a,b) => b.score - a.score || a.lastTime - b.lastTime);
             
             document.getElementById('leaderboardList').innerHTML = list.map((t, i) => `
-                <div onclick="openModal('${t.cat}', '${t.id}', '${t.name.replace(/'/g,"\\'")}', ${t.score})" class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center cursor-pointer hover:bg-slate-700 transition">
+                <div onclick="openModal('${t.cat}', '${t.id}')" class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center cursor-pointer hover:bg-slate-700 transition">
                     <div class="flex items-center gap-3">
                         <div class="text-2xl font-black text-slate-500 w-8">${i+1}.</div>
                         <div>
                             <div class="font-black text-white text-lg">${t.name}</div>
-                            <div class="text-[10px] uppercase text-slate-400">${t.cat} - ${t.code}</div>
+                            <div class="text-[10px] uppercase text-slate-400 font-bold">${t.cat} - ${t.code}</div>
                         </div>
                     </div>
                     <div class="text-3xl font-black text-blue-400">${t.score}</div>
@@ -126,52 +149,113 @@
             `).join('');
         }
 
-        // Affichage des Affectations
+        // ==========================
+        // GESTION MODAL ET FORCAGE
+        // ==========================
+        function openModal(cat, teamId) {
+            curModalCat = cat; curModalId = teamId;
+            refreshModal();
+            document.getElementById('modalDetails').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            curModalCat = null; curModalId = null;
+            document.getElementById('modalDetails').classList.add('hidden');
+        }
+
+        function refreshModal() {
+            if(!curModalCat || !curModalId) return;
+            const team = mapping[curModalCat]?.[curModalId]; if(!team) return closeModal();
+            const data = (sessions[curModalCat] && sessions[curModalCat][curModalId]) || {};
+            const scoreTotal = 40 + Object.keys(data).reduce((acc, k) => acc + (k.startsWith('C') ? data[k].score : 0), 0);
+            
+            document.getElementById('mName').innerText = team.name;
+            document.getElementById('mScore').innerText = `TOTAL : ${scoreTotal} PTS`;
+
+            let html = '';
+            for(let i=1; i<=12; i++) {
+                const c = `C${i}`;
+                if(data[c]) {
+                    // Validé
+                    html += `
+                    <div class="bg-slate-900 p-2 rounded flex justify-between items-center border border-slate-700 mb-1">
+                        <span class="font-black text-white w-10">${c}</span>
+                        <span class="flex-1 font-bold ${data[c].score===30?'text-emerald-400':(data[c].score===10?'text-orange-400':'text-red-500')}">+${data[c].score} pts</span>
+                        <button onclick="annulerScore('${c}')" class="bg-red-900/40 text-red-400 px-3 py-1 rounded text-sm hover:bg-red-600 hover:text-white transition">Annuler</button>
+                    </div>`;
+                } else {
+                    // Non validé (Boutons forçage)
+                    html += `
+                    <div class="bg-slate-800 p-2 rounded flex justify-between items-center border border-slate-700/50 opacity-60 hover:opacity-100 transition mb-1">
+                        <span class="font-black text-slate-500 w-10">${c}</span>
+                        <span class="flex-1 text-slate-500 text-sm italic">Non fait</span>
+                        <div class="flex gap-2">
+                            <button onclick="forcerScore('${c}', 10)" class="bg-orange-900/40 text-orange-400 px-3 py-1 rounded font-bold hover:bg-orange-500 hover:text-white transition">+10</button>
+                            <button onclick="forcerScore('${c}', 30)" class="bg-emerald-900/40 text-emerald-400 px-3 py-1 rounded font-bold hover:bg-emerald-500 hover:text-white transition">+30</button>
+                        </div>
+                    </div>`;
+                }
+            }
+            document.getElementById('mHistory').innerHTML = html;
+        }
+
+        function forcerScore(circuit, pts) { db.ref(`equipes/sessions/${curModalCat}/${curModalId}/${circuit}`).set({ score: pts, realTime: Date.now() }); }
+        function annulerScore(circuit) { db.ref(`equipes/sessions/${curModalCat}/${curModalId}/${circuit}`).remove(); }
+
+        // ==========================
+        // VUE AFFECTATIONS
+        // ==========================
         function renderGroupes() {
-            let html = "";
+            let html = "", catOptions = "";
             Object.keys(mapping).forEach(cat => {
+                catOptions += `<option value="${cat}">`;
                 html += `<div class="col-span-full font-black text-blue-500 mt-4 border-b border-slate-700 pb-2">${cat}</div>`;
+                
                 Object.values(mapping[cat]).forEach(t => {
-                    const colName = t.code.split('_')[0];
-                    const colStyles = { NOIR:"bg-black border-slate-600", ROUGE:"bg-red-600 border-red-900", BLEU:"bg-blue-600 border-blue-900", VERT:"bg-green-600 border-green-900", JAUNE:"bg-yellow-500 text-black border-yellow-700" };
-                    html += `<div class="bg-slate-800 p-3 rounded-lg border border-slate-700 flex flex-col items-center justify-center text-center">
-                                <div class="w-12 h-12 rounded-full border-4 flex items-center justify-center font-black text-xl mb-2 ${colStyles[colName]}">${t.code.split('_')[1]}</div>
-                                <div class="font-bold text-sm truncate w-full">${t.name}</div>
-                             </div>`;
+                    const colName = t.code.split('_')[0]; // Rétrocompatibilité et sécurité
+                    const colStyles = { NOIR:"bg-black border-slate-600", ROUGE:"bg-red-600 border-red-900", BLEU:"bg-blue-600 border-blue-900", VERT:"bg-green-600 border-green-900", JAUNE:"bg-yellow-500 border-yellow-700" };
+                    
+                    html += `
+                    <div class="bg-slate-800 p-3 rounded-lg border border-slate-700 flex flex-col items-center text-center relative">
+                        <button onclick="supprimerEquipe('${cat}', '${t.id}')" class="absolute top-1 right-2 text-slate-500 hover:text-red-500 font-bold" title="Supprimer l'équipe">✖</button>
+                        <div class="w-12 h-12 rounded-full border-4 mb-2 shadow-inner ${colStyles[colName]}"></div>
+                        <div class="font-bold text-sm truncate w-full mb-2">${t.name}</div>
+                        <select onchange="changerCouleur('${cat}', '${t.id}', this.value)" class="bg-slate-900 border border-slate-600 text-[10px] font-bold p-1 rounded w-full outline-none text-slate-400">
+                            ${colors.map(c => `<option value="${c}" ${c === colName ? 'selected' : ''}>Couleur: ${c}</option>`).join('')}
+                        </select>
+                    </div>`;
                 });
             });
             document.getElementById('groupesList').innerHTML = html;
+            document.getElementById('catList').innerHTML = catOptions;
         }
 
-        // Modal de Correction
-        function openModal(cat, teamId, teamName, totalScore) {
-            document.getElementById('mName').innerText = teamName;
-            document.getElementById('mScore').innerText = `TOTAL : ${totalScore} PTS`;
-            document.getElementById('modalDetails').classList.remove('hidden');
+        // Actions sur les équipes
+        function ajouterEquipe() {
+            const cat = document.getElementById('newCat').value.trim().toUpperCase();
+            const nom = document.getElementById('newNom').value.trim();
+            const col = document.getElementById('newCol').value;
+            if(!cat || !nom) return alert("Remplis bien la catégorie et le nom de l'équipe.");
             
-            const data = (sessions[cat] && sessions[cat][teamId]) || {};
-            const history = Object.keys(data).filter(k => k.startsWith('C')).map(k => ({ p: k, ...data[k] })).sort((a,b) => b.realTime - a.realTime);
-            
-            document.getElementById('mHistory').innerHTML = history.length ? history.map(h => `
-                <div class="bg-slate-900 p-3 rounded-lg flex justify-between items-center border border-slate-700">
-                    <div>
-                        <span class="font-black text-lg text-white">${h.p}</span>
-                        <span class="ml-3 text-sm font-bold ${h.score===30?'text-emerald-400':(h.score===10?'text-orange-400':'text-red-500')}">+${h.score} pts</span>
-                        <div class="text-[10px] text-slate-500">${new Date(h.realTime).toLocaleTimeString()}</div>
-                    </div>
-                    <button onclick="annulerScore('${cat}', '${teamId}', '${h.p}')" class="bg-red-600/20 text-red-500 p-2 rounded hover:bg-red-600 hover:text-white transition" title="Supprimer ce score">🗑️ Annuler</button>
-                </div>
-            `).join('') : "<p class='text-center italic text-slate-500 p-4'>Aucun circuit validé</p>";
+            const tId = 'EQ_' + Date.now();
+            db.ref(`equipes/mapping/${cat}/${tId}`).set({ id: tId, name: nom, code: col });
+            document.getElementById('newNom').value = ""; // Réinitialise juste le nom pour enchaîner les ajouts
         }
 
-        function annulerScore(cat, teamId, circuit) {
-            if(confirm(`Es-tu sûr de vouloir annuler le score du ${circuit} pour cette équipe ? (Cette action réactivera le circuit sur leur tablette)`)) {
-                db.ref(`equipes/sessions/${cat}/${teamId}/${circuit}`).remove();
-                document.getElementById('modalDetails').classList.add('hidden');
+        function supprimerEquipe(cat, id) {
+            if(confirm("Supprimer définitivement cette équipe et ses scores ?")) {
+                db.ref(`equipes/mapping/${cat}/${id}`).remove();
+                db.ref(`equipes/sessions/${cat}/${id}`).remove();
             }
         }
 
-        // Import CSV
+        function changerCouleur(cat, id, newCol) {
+            db.ref(`equipes/mapping/${cat}/${id}/code`).set(newCol);
+        }
+
+        // ==========================
+        // IMPORT & UTILS
+        // ==========================
         function importCSV(input) {
             Papa.parse(input.files[0], { header: true, skipEmptyLines: true, complete: res => {
                 const fields = res.meta.fields;
@@ -185,8 +269,7 @@
                     const cat = r[colCat].toUpperCase();
                     if(!newMap[cat]) newMap[cat] = {};
                     const tId = 'EQ_' + Date.now() + '_' + i;
-                    // Affectation semi-aléatoire des chasubles
-                    newMap[cat][tId] = { id: tId, name: r[colTeam], code: `${colors[i % 5]}_${Math.floor(i / 5) + 1}` };
+                    newMap[cat][tId] = { id: tId, name: r[colTeam], code: colors[i % 5] }; // Stocke directement la couleur sans numéro
                 });
                 
                 if(confirm("L'import va écraser la liste des équipes actuelles. Continuer ?")) {
@@ -208,7 +291,7 @@
             document.getElementById('btnTab'+t.charAt(0).toUpperCase()+t.slice(1)).classList.add('tab-active'); 
         }
 
-        // Affichage Matrice (Copie de l'ancien fonctionnement, pointant sur 'equipes/settings/matrix')
+        // Affichage Matrice
         db.ref('equipes/settings/matrix').on('value', snap => {
             let m = snap.val() || {}; if(Object.keys(m).length === 0) return;
             let h = `<tr class="bg-slate-900 text-[10px] text-white"><th>#</th><th colspan="2" class="bg-black py-2 rounded-tl-lg">NOIR</th><th colspan="2" class="bg-red-600 py-2">ROUGE</th><th colspan="2" class="bg-blue-600 py-2">BLEU</th><th colspan="2" class="bg-green-600 py-2">VERT</th><th colspan="2" class="bg-yellow-500 text-black py-2 rounded-tr-lg">JAUNE</th></tr>`;
@@ -216,8 +299,8 @@
                 h += `<tr class="border-b border-slate-700"><td class="font-black text-lg text-slate-500 py-2">C${c}</td>`; 
                 colors.forEach(col => { 
                     const l = m[c]?.[col] || ["",""]; 
-                    h += `<td><input class="w-10 h-10 bg-slate-900 text-center font-black text-xl text-blue-400 m-1 uppercase rounded" value="${l[0]}" maxlength="1" onchange="db.ref('equipes/settings/matrix/${c}/${col}/0').set(this.value.toUpperCase())"></td>
-                          <td class="border-r border-slate-700/50"><input class="w-10 h-10 bg-slate-900 text-center font-black text-xl text-blue-400 m-1 uppercase rounded" value="${l[1]}" maxlength="1" onchange="db.ref('equipes/settings/matrix/${c}/${col}/1').set(this.value.toUpperCase())"></td>`; 
+                    h += `<td><input class="w-10 h-10 bg-slate-900 text-center font-black text-xl text-blue-400 m-1 uppercase rounded outline-none focus:border focus:border-blue-500" value="${l[0]}" maxlength="1" onchange="db.ref('equipes/settings/matrix/${c}/${col}/0').set(this.value.toUpperCase())"></td>
+                          <td class="border-r border-slate-700/50"><input class="w-10 h-10 bg-slate-900 text-center font-black text-xl text-blue-400 m-1 uppercase rounded outline-none focus:border focus:border-blue-500" value="${l[1]}" maxlength="1" onchange="db.ref('equipes/settings/matrix/${c}/${col}/1').set(this.value.toUpperCase())"></td>`; 
                 }); 
                 h += `</tr>`; 
             }
